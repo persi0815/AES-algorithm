@@ -2,12 +2,11 @@ import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.spec.IvParameterSpec;
-import java.security.SecureRandom;
 import java.util.Arrays;
 
 public class AESAlgorithm {
 
-    // 학번과 이름을 이진수로 변환하여 AES 키 생성
+    // 학번과 이름을 이진수로 변환하여 AES 128비트 키 생성
     public static SecretKey generateKey(String studentId, String name) {
         // 학번 10문자 + 이름 6문자 = 16문자
         String studentIdBinary = stringToBinary(studentId); // 학번을 이진수로 변환
@@ -32,50 +31,42 @@ public class AESAlgorithm {
     }
 
     // AES 암호화
-    public static byte[] aesEncrypt(String plaintext, SecretKey key, IvParameterSpec iv) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+    public static byte[] aesEncrypt(byte[] plaintext, SecretKey key, IvParameterSpec iv) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding"); // NoPadding 사용
+        if (plaintext.length % 16 != 0) {
+            throw new IllegalArgumentException("Plaintext length must be a multiple of 16 bytes (128 bits) with NoPadding.");
+        }
         cipher.init(Cipher.ENCRYPT_MODE, key, iv);
-        return cipher.doFinal(plaintext.getBytes());
+        return cipher.doFinal(plaintext); // 평문을 바이트 배열로 전달
     }
 
     // AES 복호화
     public static String aesDecrypt(byte[] ciphertext, SecretKey key, IvParameterSpec iv) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        Cipher cipher = Cipher.getInstance("AES/CBC/NoPadding"); // NoPadding 사용
         cipher.init(Cipher.DECRYPT_MODE, key, iv);
         byte[] decryptedBytes = cipher.doFinal(ciphertext);
-        return new String(decryptedBytes);
+        return new String(decryptedBytes).trim(); // 복호화된 결과 반환
     }
 
-    // IvParameterSpec 생성 (암호화 초기화 벡터)
-    public static IvParameterSpec generateIv() {
+    // 고정된 IvParameterSpec 생성 (고정된 초기화 벡터)
+    public static IvParameterSpec generateFixedIv() {
         byte[] iv = new byte[16];
-        new SecureRandom().nextBytes(iv);
+        Arrays.fill(iv, (byte) 0x00); // 고정된 값으로 초기화
         return new IvParameterSpec(iv);
     }
 
-    // Avalanche 효과: 문자열의 첫 번째 비트를 변경
-    public static String flipFirstBit(String binaryStr) {
-        String flippedBit = binaryStr.charAt(0) == '0' ? "1" : "0";
-        return flippedBit + binaryStr.substring(1);
+    // 암호키의 첫 번째 비트를 변경 (AES 128비트 키는 항상 128비트로 유지)
+    public static byte[] flipFirstBitInKey(byte[] key) {
+        byte[] modifiedKey = key.clone();
+        modifiedKey[0] = (byte) (modifiedKey[0] ^ 0x80); // 첫 번째 비트 변경 (XOR)
+        return modifiedKey;
     }
 
-    // 바이트 배열을 이진 문자열로 변환
-    public static String bytesToBinary(byte[] bytes) {
-        StringBuilder result = new StringBuilder();
-        for (byte b : bytes) {
-            result.append(String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0'));
-        }
-        return result.toString();
-    }
-
-    // 바이트 배열 간의 비트 차이 계산
-    public static int calculateBitDifference(byte[] arr1, byte[] arr2) {
-        int diffCount = 0;
-        for (int i = 0; i < arr1.length; i++) {
-            int xorResult = arr1[i] ^ arr2[i]; // XOR 연산으로 비트 차이 찾기
-            diffCount += Integer.bitCount(xorResult); // XOR 결과에서 1인 비트 개수를 셈
-        }
-        return diffCount;
+    // 평문의 첫 번째 비트를 변경
+    public static byte[] flipFirstBitInPlaintext(byte[] plaintext) {
+        byte[] modifiedPlaintext = plaintext.clone();
+        modifiedPlaintext[0] = (byte) (modifiedPlaintext[0] ^ 0x80); // 첫 번째 비트 변경 (XOR)
+        return modifiedPlaintext;
     }
 
     // 바이트 배열을 16진수로 변환하는 메소드
@@ -87,62 +78,76 @@ public class AESAlgorithm {
         return sb.toString();
     }
 
+    // 바이트 배열을 128비트 2진수 문자열로 변환하는 메소드
+    public static String byteArrayToBinaryString(byte[] bytes) {
+        StringBuilder binaryString = new StringBuilder();
+        for (byte b : bytes) {
+            binaryString.append(String.format("%8s", Integer.toBinaryString(b & 0xFF)).replace(' ', '0')); // 8자리 2진수로 변환
+        }
+        return binaryString.toString();
+    }
+
+    // 128비트짜리 2진수 문자열 간의 비트 차이 계산
+    public static int calculateBitDifferenceFromBinaryStrings(String binaryStr1, String binaryStr2) {
+        int diffCount = 0;
+        for (int i = 0; i < binaryStr1.length(); i++) {
+            if (binaryStr1.charAt(i) != binaryStr2.charAt(i)) {
+                diffCount++;
+            }
+        }
+        return diffCount;
+    }
+
     public static void main(String[] args) throws Exception {
         // 학번과 이름
-        String studentId = "2022126061"; // 학번 10문자
-        String name = "YANGJW";          // 이름 6문자
+        String studentId = "2022126061";
+        String name = "YANGJW";
 
         // 평문
-        String plaintext = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        String plaintext = "ABCDEFGHIJKLMNOP";
+        byte[] plaintextBytes = plaintext.getBytes();
 
-        // 1. AES 암호키 생성
+        if (plaintextBytes.length != 16) {
+            throw new IllegalArgumentException("Plaintext must be exactly 16 bytes (128 bits) long.");
+        }
+
+        // AES 암호키 생성
         SecretKey key = generateKey(studentId, name);
-        System.out.println("AES 암호키 생성 완료");
 
-        // 2. 평문 암호화
-        IvParameterSpec iv = generateIv();
-        byte[] ciphertext = aesEncrypt(plaintext, key, iv);
-        System.out.println("암호화된 텍스트 (바이트 배열): " + Arrays.toString(ciphertext));
+        // 평문 암호화 (고정된 IV 사용)
+        IvParameterSpec iv = generateFixedIv();
+        byte[] ciphertext = aesEncrypt(plaintextBytes, key, iv);
+
+        // 암호화 결과 출력
         System.out.println("암호화된 텍스트 (16진수): " + bytesToHex(ciphertext));
 
-        // 3. 복호화
+        // 복호화
         String decryptedText = aesDecrypt(ciphertext, key, iv);
         System.out.println("복호화된 텍스트: " + decryptedText);
 
-        System.out.println("복호화된 텍스트와 plain text가 같은가? " + decryptedText.equals(plaintext));
-
-        // 4. 평문의 2진수 변환 후 첫 번째 비트 변경 후 암호화
-        String plaintextBinary = stringToBinary(plaintext);
-        String flippedPlaintextBinary = flipFirstBit(plaintextBinary); // 첫 번째 비트 변경
-        byte[] flippedPlaintextBytes = new byte[flippedPlaintextBinary.length() / 8];
-        for (int i = 0; i < flippedPlaintextBinary.length(); i += 8) {
-            flippedPlaintextBytes[i / 8] = (byte) Integer.parseInt(flippedPlaintextBinary.substring(i, i + 8), 2);
-        }
-        String flippedPlaintext = new String(flippedPlaintextBytes);
-
-        byte[] flippedCiphertext = aesEncrypt(flippedPlaintext, key, iv);
-        System.out.println("첫 번째 비트 바꾼 평문 암호화 텍스트 (바이트 배열): " + Arrays.toString(flippedCiphertext));
+        // 평문 첫 번째 비트 변경 후 암호화
+        byte[] flippedPlaintextBytes = flipFirstBitInPlaintext(plaintextBytes);
+        byte[] flippedCiphertext = aesEncrypt(flippedPlaintextBytes, key, iv);
         System.out.println("첫 번째 비트 바꾼 평문 암호화 텍스트 (16진수): " + bytesToHex(flippedCiphertext));
 
-        // 이전에 AES로 암호화된 결과와 얼마나 많은 비트가 달라지는지 확인
-        int plaintextBitDiff = calculateBitDifference(ciphertext, flippedCiphertext);
-        System.out.println("평문 첫 비트 변경 후 암호화된 텍스트 간 비트 차이: " + plaintextBitDiff + " 비트");
-
-        // 5. 암호키의 첫 번째 비트 변경 후 암호화
-        String keyBinary = bytesToBinary(key.getEncoded());
-        String flippedKeyBinary = flipFirstBit(keyBinary);
-        byte[] flippedKeyBytes = new byte[flippedKeyBinary.length() / 8];
-        for (int i = 0; i < flippedKeyBinary.length(); i += 8) {
-            flippedKeyBytes[i / 8] = (byte) Integer.parseInt(flippedKeyBinary.substring(i, i + 8), 2);
-        }
+        // 암호키의 첫 번째 비트 변경 후 암호화
+        byte[] keyBytes = key.getEncoded();
+        byte[] flippedKeyBytes = flipFirstBitInKey(keyBytes);
         SecretKey flippedKey = new SecretKeySpec(flippedKeyBytes, "AES");
 
-        byte[] flippedKeyCiphertext = aesEncrypt(plaintext, flippedKey, iv);
-        System.out.println("첫 번째 비트 바꾼 키로 암호화된 텍스트 (바이트 배열): " + Arrays.toString(flippedKeyCiphertext));
+        byte[] flippedKeyCiphertext = aesEncrypt(plaintextBytes, flippedKey, iv);
         System.out.println("첫 번째 비트 바꾼 키로 암호화된 텍스트 (16진수): " + bytesToHex(flippedKeyCiphertext));
 
-        // 이전에 AES로 암호화된 결과와 얼마나 많은 비트가 달라지는지 확인
-        int keyBitDiff = calculateBitDifference(ciphertext, flippedKeyCiphertext);
-        System.out.println("암호키 첫 비트 변경 후 암호화된 텍스트 간 비트 차이: " + keyBitDiff + " 비트");
+        // 바이트 배열을 2진수 문자열로 변환
+        String binaryCiphertext = byteArrayToBinaryString(ciphertext);
+        String binaryFlippedCiphertext = byteArrayToBinaryString(flippedCiphertext);
+        String binaryFlippedKeyCiphertext = byteArrayToBinaryString(flippedKeyCiphertext);
+
+        // 비트 차이 계산
+        int plaintextBitDiff = calculateBitDifferenceFromBinaryStrings(binaryCiphertext, binaryFlippedCiphertext);
+        System.out.println("평문 첫 비트 변경 후 비트 차이: " + plaintextBitDiff + " 비트");
+
+        int keyBitDiff = calculateBitDifferenceFromBinaryStrings(binaryCiphertext, binaryFlippedKeyCiphertext);
+        System.out.println("암호키 첫 비트 변경 후 비트 차이: " + keyBitDiff + " 비트");
     }
 }
